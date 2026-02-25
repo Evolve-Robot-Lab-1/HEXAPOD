@@ -1,0 +1,69 @@
+// leg1_slow_sweep - Slow sweep test for Leg 1 (ch0-2) on PCA 0x40
+// Sweeps each servo: min(130) -> max(430) -> center, one at a time
+// Centers: CH0=280 (Coxa), CH1=290 (Femur), CH2=330 (Tibia)
+
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
+
+Adafruit_PWMServoDriver pca1 = Adafruit_PWMServoDriver(0x40);
+
+#define SERVO_FREQ 50
+
+void slowMove(int ch, int from, int to) {
+  int step = (to > from) ? 1 : -1;
+  int pos = from;
+  while (pos != to) {
+    pos += step;
+    pca1.setPWM(ch, 0, pos);
+    delay(5);
+  }
+}
+
+void setup() {
+  Serial.begin(9600);
+  delay(1000);
+  pca1.begin();
+  pca1.setPWMFreq(SERVO_FREQ);
+  delay(10);
+
+  pca1.setPWM(0, 0, 280);
+  pca1.setPWM(1, 0, 290);
+  pca1.setPWM(2, 0, 330);
+  Serial.println("Leg1 at center");
+  delay(2000);
+}
+
+void loop() {
+  Serial.println("CH0 Coxa -> MIN 130");
+  slowMove(0, 280, 130);
+  delay(2000);
+  Serial.println("CH0 Coxa -> MAX 430");
+  slowMove(0, 130, 430);
+  delay(2000);
+  Serial.println("CH0 Coxa -> CENTER 280");
+  slowMove(0, 430, 280);
+  delay(2000);
+
+  Serial.println("CH1 Femur -> MIN 130");
+  slowMove(1, 290, 130);
+  delay(2000);
+  Serial.println("CH1 Femur -> MAX 430");
+  slowMove(1, 130, 430);
+  delay(2000);
+  Serial.println("CH1 Femur -> CENTER 290");
+  slowMove(1, 430, 290);
+  delay(2000);
+
+  Serial.println("CH2 Tibia -> MIN 130");
+  slowMove(2, 330, 130);
+  delay(2000);
+  Serial.println("CH2 Tibia -> MAX 430");
+  slowMove(2, 130, 430);
+  delay(2000);
+  Serial.println("CH2 Tibia -> CENTER 330");
+  slowMove(2, 430, 330);
+  delay(2000);
+
+  Serial.println("=== All at center, repeating ===");
+  delay(3000);
+}

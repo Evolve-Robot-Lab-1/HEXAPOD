@@ -1,0 +1,28 @@
+// ch1_sweep - Simple CH1 only sweep on PCA 0x40
+// Sweeps ch1 between min(130) and max(430) continuously
+
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
+
+Adafruit_PWMServoDriver pca1 = Adafruit_PWMServoDriver(0x40);
+
+#define SERVO_FREQ 50
+
+void setup() {
+  Serial.begin(9600);
+  delay(1000);
+  pca1.begin();
+  pca1.setPWMFreq(SERVO_FREQ);
+  delay(10);
+  Serial.println("CH1 sweep starting");
+}
+
+void loop() {
+  Serial.println("CH1 -> MIN 130");
+  pca1.setPWM(1, 0, 130);
+  delay(3000);
+
+  Serial.println("CH1 -> MAX 430");
+  pca1.setPWM(1, 0, 430);
+  delay(3000);
+}

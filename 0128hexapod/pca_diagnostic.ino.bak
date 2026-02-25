@@ -1,0 +1,65 @@
+// pca_diagnostic - PCA9685 register diagnostic + sweep all 16 channels
+// Reads MODE1/MODE2 registers, verifies PWM write, sweeps all channels
+// PCA address: 0x40
+
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
+
+Adafruit_PWMServoDriver pca1 = Adafruit_PWMServoDriver(0x40);
+
+#define SERVO_FREQ 50
+
+void setup() {
+  Serial.begin(9600);
+  delay(2000);
+  Serial.println("=== PCA9685 DIAGNOSTIC ===");
+
+  pca1.begin();
+  pca1.setPWMFreq(SERVO_FREQ);
+  delay(10);
+
+  Wire.beginTransmission(0x40);
+  Wire.write(0x00);
+  Wire.endTransmission();
+  Wire.requestFrom((uint8_t)0x40, (uint8_t)2);
+  uint8_t mode1 = Wire.read();
+  uint8_t mode2 = Wire.read();
+  Serial.print("MODE1: 0x"); Serial.println(mode1, HEX);
+  Serial.print("MODE2: 0x"); Serial.println(mode2, HEX);
+
+  pca1.setPWM(0, 0, 300);
+  delay(10);
+  Wire.beginTransmission(0x40);
+  Wire.write(0x06);
+  Wire.endTransmission();
+  Wire.requestFrom((uint8_t)0x40, (uint8_t)4);
+  uint8_t onL = Wire.read();
+  uint8_t onH = Wire.read();
+  uint8_t offL = Wire.read();
+  uint8_t offH = Wire.read();
+  uint16_t onVal = (onH << 8) | onL;
+  uint16_t offVal = (offH << 8) | offL;
+  Serial.print("CH0 ON="); Serial.print(onVal);
+  Serial.print(" OFF="); Serial.println(offVal);
+  Serial.println("(Expected ON=0, OFF=300)");
+
+  Serial.println();
+  Serial.println("Sweeping ALL 16 channels...");
+  for (int ch = 0; ch < 16; ch++) {
+    Serial.print("CH"); Serial.print(ch); Serial.print(": 150");
+    pca1.setPWM(ch, 0, 150);
+    delay(800);
+    Serial.print(" -> 400");
+    pca1.setPWM(ch, 0, 400);
+    delay(800);
+    Serial.print(" -> 280");
+    pca1.setPWM(ch, 0, 280);
+    delay(500);
+    Serial.println(" done");
+  }
+
+  Serial.println();
+  Serial.println("=== DONE ===");
+}
+
+void loop() {}

@@ -1,0 +1,63 @@
+// PCA2 (0x41) - Leg 4 center test
+// Leg 4 on ch0-2
+// Commands: sN = select channel, NNN = move to pulse (100-480)
+
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
+
+Adafruit_PWMServoDriver pca2 = Adafruit_PWMServoDriver(0x41);
+
+#define SERVO_FREQ 50
+
+#define CH0_CENTER 280  // L4 Coxa
+#define CH1_CENTER 290  // L4 Femur
+#define CH2_CENTER 330  // L4 Tibia
+
+int chPos[16];
+int activeCh = 0;
+
+void slowMove(int ch, int target) {
+  if (target < 100) target = 100;
+  if (target > 480) target = 480;
+  int step = (target > chPos[ch]) ? 1 : -1;
+  while (chPos[ch] != target) {
+    chPos[ch] += step;
+    pca2.setPWM(ch, 0, chPos[ch]);
+    delay(3);
+  }
+}
+
+void setup() {
+  Serial.begin(9600);
+  delay(1000);
+  pca2.begin();
+  pca2.setPWMFreq(SERVO_FREQ);
+  delay(10);
+
+  chPos[0] = CH0_CENTER; pca2.setPWM(0, 0, CH0_CENTER);
+  chPos[1] = CH1_CENTER; pca2.setPWM(1, 0, CH1_CENTER);
+  chPos[2] = CH2_CENTER; pca2.setPWM(2, 0, CH2_CENTER);
+
+  for (int i = 3; i < 16; i++) chPos[i] = 280;
+
+  Serial.println("PCA2 0x41 - L4 centered. sN=select ch, NNN=move");
+}
+
+void loop() {
+  if (Serial.available()) {
+    String input = Serial.readStringUntil('\n');
+    input.trim();
+    if (input.startsWith("s")) {
+      activeCh = input.substring(1).toInt();
+      Serial.print("ch"); Serial.print(activeCh);
+      Serial.print(" pos="); Serial.println(chPos[activeCh]);
+    } else {
+      int val = input.toInt();
+      if (val >= 100 && val <= 480) {
+        Serial.print("ch"); Serial.print(activeCh);
+        Serial.print(" -> "); Serial.println(val);
+        slowMove(activeCh, val);
+      }
+    }
+  }
+}

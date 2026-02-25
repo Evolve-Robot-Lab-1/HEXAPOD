@@ -1,0 +1,19 @@
+# Calibration photos
+*.jpg
+*.jpeg
+*.png
+
+# Arduino build artifacts
+build/
+*.elf
+*.hex
+*.o
+*.d
+
+# OS files
+.DS_Store
+cap_%d
+
+# Reference projects (cloned repos)
+jiro-hexapod/
+marcuscw-hexapod/
