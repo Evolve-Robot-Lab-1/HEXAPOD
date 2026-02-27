@@ -1,18 +1,7 @@
-// Hexapod Tripod Walk
-// Phase 1: Simple tripod gait using pulse offsets (no IK)
-// Board: Arduino Mega 2560
-//
-// Tripod groups:
-//   Group A: L1 (front-right), L3 (back-right), L5 (mid-left)
-//   Group B: L2 (mid-right),   L4 (back-left),  L6 (front-left)
-//
-// Walk cycle per half-step:
-//   1. Lift swing group (femur+tibia up)
-//   2. Swing forward + push back (coxa, simultaneous)
-//   3. Lower swing group
-//   4. Swap groups, repeat
-//
-// Serial commands: 's'=stop, 'g'=go, 'c'=center
+// Hexapod Movement Controller
+// Serial commands: w=forward, x=backward, a=turn left, d=turn right
+//                  s=stop, c=center, +=faster, -=slower
+// Ready for BLE/WiFi/ESP32 — just replace serial input source
 
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
@@ -25,39 +14,37 @@ Adafruit_PWMServoDriver pca2 = Adafruit_PWMServoDriver(0x41);
 #define NUM_LEGS   6
 #define GROUP_SIZE 3
 
-// --- Gait parameters (tune these) ---
-#define COXA_SWING  40   // coxa forward/back swing amount
-#define LIFT_OFFSET 25   // femur+tibia lift height
-#define STEP_DELAY  10   // ms per step (with step size 3)
-#define PHASE_PAUSE 30   // ms pause between phases
+// Gait parameters
+int coxaSwing  = 40;
+int liftOffset = 25;
+int stepDelay  = 10;
+int phasePause = 30;
 
-// --- Center positions (standing neutral) ---
+// Movement mode: 0=idle, 1=forward, 2=backward, 3=turn_left, 4=turn_right
+int mode = 0;
+
+// Calibrated centers (2026-02-27)
 int centers[NUM_SERVOS] = {
-  280, 280, 330,  // L1: coxa, femur, tibia
-  300, 310, 310,  // L2
+  280, 280, 330,  // L1
+  300, 320, 300,  // L2
   330, 310, 290,  // L3
-  300, 320, 270,  // L4
-  260, 210, 320,  // L5
-  280, 250, 300   // L6
+  300, 300, 270,  // L4
+  260, 230, 320,  // L5
+  280, 230, 300   // L6
 };
 
 int curPos[NUM_SERVOS];
 
-// --- Servo indices by joint type (per leg L1-L6) ---
 const int coxas[NUM_LEGS]  = {0, 3, 6, 9, 12, 15};
 const int femurs[NUM_LEGS] = {1, 4, 7, 10, 13, 16};
 const int tibias[NUM_LEGS] = {2, 5, 8, 11, 14, 17};
 
-// --- Direction arrays (per leg L1-L6) ---
-const int coxaDir[NUM_LEGS]  = {1, 1, 1, -1, -1, -1};  // R:+, L:-
+const int coxaDir[NUM_LEGS]  = {1, 1, 1, -1, -1, -1};
 const int femurDir[NUM_LEGS] = {1, -1, -1, -1, 1, 1};
-const int tibiaDir[NUM_LEGS] = {1, -1, -1, -1, 1, 1};
+const int tibiaDir[NUM_LEGS] = {-1, 1, 1, 1, -1, -1};
 
-// --- Tripod groups (leg indices 0-5 = L1-L6) ---
 const int groupA[GROUP_SIZE] = {0, 2, 4};  // L1, L3, L5
 const int groupB[GROUP_SIZE] = {1, 3, 5};  // L2, L4, L6
-
-bool walking = false;  // start idle after stand
 
 // ===================== Low-level =====================
 
@@ -67,8 +54,7 @@ void setServo(int s, int val) {
   else pca2.setPWM(s - 9, 0, val);
 }
 
-void smoothMoveAll(int targets[], int stepDelay) {
-  // Find max distance so all servos finish together
+void smoothMoveAll(int targets[], int sd) {
   int maxDist = 0;
   for (int i = 0; i < NUM_SERVOS; i++) {
     int d = abs(targets[i] - curPos[i]);
@@ -76,8 +62,7 @@ void smoothMoveAll(int targets[], int stepDelay) {
   }
   if (maxDist == 0) return;
 
-  // Move proportionally — all finish at the same time
-  int steps = (maxDist + 2) / 3;  // total ticks (step size ~3 for largest)
+  int steps = (maxDist + 2) / 3;
   int startPos[NUM_SERVOS];
   for (int i = 0; i < NUM_SERVOS; i++) startPos[i] = curPos[i];
 
@@ -89,9 +74,8 @@ void smoothMoveAll(int targets[], int stepDelay) {
         setServo(i, curPos[i]);
       }
     }
-    delay(stepDelay);
+    delay(sd);
   }
-  // Ensure exact target
   for (int i = 0; i < NUM_SERVOS; i++) {
     if (curPos[i] != targets[i]) {
       curPos[i] = targets[i];
@@ -111,10 +95,14 @@ void centerAll() {
   }
 }
 
+void goToCenter() {
+  int targets[NUM_SERVOS];
+  for (int i = 0; i < NUM_SERVOS; i++) targets[i] = centers[i];
+  smoothMoveAll(targets, stepDelay);
+}
+
 void copyToTargets(int targets[]) {
-  for (int i = 0; i < NUM_SERVOS; i++) {
-    targets[i] = curPos[i];
-  }
+  for (int i = 0; i < NUM_SERVOS; i++) targets[i] = curPos[i];
 }
 
 // ===================== Gait helpers =====================
@@ -123,8 +111,8 @@ void setLift(int targets[], const int group[], bool lift) {
   for (int i = 0; i < GROUP_SIZE; i++) {
     int leg = group[i];
     if (lift) {
-      targets[femurs[leg]] = centers[femurs[leg]] + (LIFT_OFFSET * -femurDir[leg]);
-      targets[tibias[leg]] = centers[tibias[leg]] + (LIFT_OFFSET * -tibiaDir[leg]);
+      targets[femurs[leg]] = centers[femurs[leg]] + (liftOffset * -femurDir[leg]);
+      targets[tibias[leg]] = centers[tibias[leg]] + (liftOffset * -tibiaDir[leg]);
     } else {
       targets[femurs[leg]] = centers[femurs[leg]];
       targets[tibias[leg]] = centers[tibias[leg]];
@@ -135,38 +123,85 @@ void setLift(int targets[], const int group[], bool lift) {
 void setCoxaSwing(int targets[], const int group[], int swingDir) {
   for (int i = 0; i < GROUP_SIZE; i++) {
     int leg = group[i];
-    targets[coxas[leg]] = centers[coxas[leg]] + (COXA_SWING * swingDir * coxaDir[leg]);
+    targets[coxas[leg]] = centers[coxas[leg]] + (coxaSwing * swingDir * coxaDir[leg]);
   }
 }
 
 // ===================== Walk step =====================
 
-void halfStep(const int swingGroup[], const int stanceGroup[], const char* label) {
+void halfStep(const int swingGroup[], const int stanceGroup[]) {
   int targets[NUM_SERVOS];
 
-  Serial.print(label);
-  Serial.println(": Lift");
+  // 1. Lift swing group
   copyToTargets(targets);
   setLift(targets, swingGroup, true);
-  smoothMoveAll(targets, STEP_DELAY);
-  delay(PHASE_PAUSE);
+  smoothMoveAll(targets, stepDelay);
+  delay(phasePause);
 
-  if (Serial.available() && Serial.peek() == 's') return;
+  // Check for mode change
+  checkSerial();
+  if (mode == 0) return;
 
-  Serial.print(label);
-  Serial.println(": Swing+Push");
+  // 2. Move coxas based on mode
   copyToTargets(targets);
-  setCoxaSwing(targets, swingGroup, 1);
-  setCoxaSwing(targets, stanceGroup, -1);
-  smoothMoveAll(targets, STEP_DELAY);
-  delay(PHASE_PAUSE);
+  switch (mode) {
+    case 1:  // forward
+      setCoxaSwing(targets, swingGroup, 1);
+      setCoxaSwing(targets, stanceGroup, -1);
+      break;
+    case 2:  // backward
+      setCoxaSwing(targets, swingGroup, -1);
+      setCoxaSwing(targets, stanceGroup, 1);
+      break;
+    case 3:  // turn left — all coxas rotate same direction
+      setCoxaSwing(targets, swingGroup, 1);
+      setCoxaSwing(targets, stanceGroup, 1);
+      break;
+    case 4:  // turn right — all coxas rotate same direction
+      setCoxaSwing(targets, swingGroup, -1);
+      setCoxaSwing(targets, stanceGroup, -1);
+      break;
+  }
+  smoothMoveAll(targets, stepDelay);
+  delay(phasePause);
 
-  Serial.print(label);
-  Serial.println(": Lower");
+  // 3. Lower swing group
   copyToTargets(targets);
   setLift(targets, swingGroup, false);
-  smoothMoveAll(targets, STEP_DELAY);
-  delay(PHASE_PAUSE);
+  smoothMoveAll(targets, stepDelay);
+  delay(phasePause);
+}
+
+// ===================== Serial =====================
+
+void checkSerial() {
+  if (!Serial.available()) return;
+  char ch = Serial.read();
+  switch (ch) {
+    case 'w': mode = 1; Serial.println(">> Forward");  break;
+    case 'x': mode = 2; Serial.println(">> Backward"); break;
+    case 'a': mode = 3; Serial.println(">> Turn Left");  break;
+    case 'd': mode = 4; Serial.println(">> Turn Right"); break;
+    case 's':
+      mode = 0;
+      goToCenter();
+      Serial.println(">> Stopped");
+      break;
+    case 'c':
+      mode = 0;
+      goToCenter();
+      Serial.println(">> Centered");
+      break;
+    case '+':
+      if (stepDelay > 3) stepDelay -= 2;
+      Serial.print(">> Speed up, delay="); Serial.println(stepDelay);
+      break;
+    case '-':
+      stepDelay += 2;
+      Serial.print(">> Slow down, delay="); Serial.println(stepDelay);
+      break;
+    default: break;
+  }
 }
 
 // ===================== Main =====================
@@ -183,32 +218,18 @@ void setup() {
   delay(10);
 
   centerAll();
-  Serial.println("Standing idle. 'g'=walk, 's'=stop, 'c'=center");
+  Serial.println("Hexapod ready.");
+  Serial.println("w=fwd x=back a=left d=right s=stop c=center +=fast -=slow");
 }
 
 void loop() {
-  if (Serial.available()) {
-    char ch = Serial.read();
-    if (ch == 'g') {
-      walking = true;
-      Serial.println("Walking...");
-    } else if (ch == 's') {
-      walking = false;
-      Serial.println("Stopped.");
-    } else if (ch == 'c') {
-      walking = false;
-      int targets[NUM_SERVOS];
-      for (int i = 0; i < NUM_SERVOS; i++) targets[i] = centers[i];
-      smoothMoveAll(targets, STEP_DELAY);
-      Serial.println("Centered.");
-    }
-  }
+  checkSerial();
 
-  if (walking) {
-    halfStep(groupA, groupB, "A");
-    if (!walking) return;
-    halfStep(groupB, groupA, "B");
+  if (mode > 0) {
+    halfStep(groupA, groupB);
+    if (mode == 0) return;
+    halfStep(groupB, groupA);
   } else {
-    delay(100);
+    delay(50);
   }
 }
