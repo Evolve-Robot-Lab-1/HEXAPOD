@@ -1,6 +1,6 @@
-// Hexapod Movement Controller + Dance + Wave
+// Hexapod Movement Controller
 // w=fwd x=back a=left d=right s=stop c=center +=fast -=slow
-// 1=dance 2=wave walk 3=body sway
+// 1=dance 2=wave 3=sway
 
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
